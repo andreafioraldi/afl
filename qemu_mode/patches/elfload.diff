@@ -1,5 +1,7 @@
---- qemu-2.10.0-rc3-clean/linux-user/elfload.c	2017-08-15 11:39:41.000000000 -0700
-+++ qemu-2.10.0-rc3/linux-user/elfload.c	2017-08-22 14:33:57.397127516 -0700
+diff --git a/linux-user/elfload.c b/linux-user/elfload.c
+index 5bccd2e2..94e928a4 100644
+--- a/linux-user/elfload.c
++++ b/linux-user/elfload.c
 @@ -20,6 +20,8 @@
  
  #define ELF_OSABI   ELFOSABI_SYSV
@@ -9,7 +11,7 @@
  /* from personality.h */
  
  /*
-@@ -2085,6 +2087,8 @@
+@@ -2301,6 +2303,8 @@ static void load_elf_image(const char *image_name, int image_fd,
      info->brk = 0;
      info->elf_flags = ehdr->e_flags;
  
@@ -18,7 +20,7 @@
      for (i = 0; i < ehdr->e_phnum; i++) {
          struct elf_phdr *eppnt = phdr + i;
          if (eppnt->p_type == PT_LOAD) {
-@@ -2118,9 +2122,11 @@
+@@ -2335,9 +2339,11 @@ static void load_elf_image(const char *image_name, int image_fd,
              if (elf_prot & PROT_EXEC) {
                  if (vaddr < info->start_code) {
                      info->start_code = vaddr;
