@@ -77,7 +77,7 @@ static void afl_setup(void);
 static void afl_forkserver(CPUState*);
 
 static void afl_wait_tsl(CPUState*, int);
-static void afl_request_tsl(target_ulong, target_ulong, uint32_t, TranslationBlock*, int);
+static void afl_request_tsl(target_ulong, target_ulong, uint32_t, uint32_t, TranslationBlock*, int);
 
 /* Data structures passed around by the translate handlers: */
 
@@ -85,6 +85,7 @@ struct afl_tb {
   target_ulong pc;
   target_ulong cs_base;
   uint32_t flags;
+  uint32_t cf_mask;
 };
 
 struct afl_tsl {
@@ -94,13 +95,15 @@ struct afl_tsl {
 
 struct afl_chain {
   struct afl_tb last_tb;
+  uint32_t cf_mask;
   int tb_exit;
 };
 
 /* Some forward decls: */
 
-TranslationBlock *tb_htable_lookup(CPUState*, target_ulong, target_ulong, uint32_t);
-static inline TranslationBlock *tb_find(CPUState*, TranslationBlock*, int);
+TranslationBlock *tb_htable_lookup(CPUState*, target_ulong, target_ulong, uint32_t, uint32_t);
+static inline TranslationBlock *tb_find(CPUState*, TranslationBlock*, int, uint32_t);
+static inline void tb_add_jump(TranslationBlock *tb, int n, TranslationBlock *tb_next);
 
 /*************************
  * ACTUAL IMPLEMENTATION *
@@ -231,7 +234,7 @@ static void afl_forkserver(CPUState *cpu) {
    decides to chain two TBs together. When this happens, we tell the parent to
    mirror the operation, so that the next fork() has a cached copy. */
 
-static void afl_request_tsl(target_ulong pc, target_ulong cb, uint32_t flags,
+static void afl_request_tsl(target_ulong pc, target_ulong cb, uint32_t flags, uint32_t cf_mask,
                             TranslationBlock *last_tb, int tb_exit) {
 
   struct afl_tsl t;
@@ -242,6 +245,7 @@ static void afl_request_tsl(target_ulong pc, target_ulong cb, uint32_t flags,
   t.tb.pc      = pc;
   t.tb.cs_base = cb;
   t.tb.flags   = flags;
+  t.tb.cf_mask = cf_mask;
   t.is_chain   = (last_tb != NULL);
 
   if (write(TSL_FD, &t, sizeof(struct afl_tsl)) != sizeof(struct afl_tsl))
@@ -251,6 +255,7 @@ static void afl_request_tsl(target_ulong pc, target_ulong cb, uint32_t flags,
     c.last_tb.pc      = last_tb->pc;
     c.last_tb.cs_base = last_tb->cs_base;
     c.last_tb.flags   = last_tb->flags;
+    c.cf_mask         = cf_mask;
     c.tb_exit         = tb_exit;
 
     if (write(TSL_FD, &c, sizeof(struct afl_chain)) != sizeof(struct afl_chain))
@@ -275,14 +280,12 @@ static void afl_wait_tsl(CPUState *cpu, int fd) {
     if (read(fd, &t, sizeof(struct afl_tsl)) != sizeof(struct afl_tsl))
       break;
 
-    tb = tb_htable_lookup(cpu, t.tb.pc, t.tb.cs_base, t.tb.flags);
+    tb = tb_htable_lookup(cpu, t.tb.pc, t.tb.cs_base, t.tb.flags, t.tb.cf_mask);
 
     if(!tb) {
       mmap_lock();
-      tb_lock();
       tb = tb_gen_code(cpu, t.tb.pc, t.tb.cs_base, t.tb.flags, 0);
       mmap_unlock();
-      tb_unlock();
     }
 
     if (t.is_chain) {
@@ -290,13 +293,9 @@ static void afl_wait_tsl(CPUState *cpu, int fd) {
         break;
 
       last_tb = tb_htable_lookup(cpu, c.last_tb.pc, c.last_tb.cs_base,
-                                 c.last_tb.flags);
+                                 c.last_tb.flags, c.cf_mask);
       if (last_tb) {
-        tb_lock();
-        if (!tb->invalid) {
-          tb_add_jump(last_tb, c.tb_exit, tb);
-        }
-        tb_unlock();
+        tb_add_jump(last_tb, c.tb_exit, tb);
       }
     }
 

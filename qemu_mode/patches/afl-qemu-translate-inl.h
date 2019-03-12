@@ -53,10 +53,6 @@ void afl_maybe_log(abi_ulong cur_loc) {
 /* Generates TCG code for AFL's tracing instrumentation. */
 static void afl_gen_trace(target_ulong cur_loc) {
 
-  static __thread target_ulong prev_loc;
-  TCGv index, count, new_prev_loc;
-  TCGv_ptr prev_loc_ptr, count_ptr;
-
   /* Optimize for cur_loc > afl_end_code, which is the most likely case on
      Linux systems. */
 
@@ -75,7 +71,7 @@ static void afl_gen_trace(target_ulong cur_loc) {
 
   if (cur_loc >= afl_inst_rms) return;
 
-  TCGTemp *args[1] = { tcgv_i64_temp(cur_loc) };
+  TCGTemp *args[1] = { tcgv_i64_temp( tcg_const_tl(cur_loc) ) };
   tcg_gen_afl_callN(afl_maybe_log, NULL, 1, args);
   
 }
